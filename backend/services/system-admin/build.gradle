@@ -1,0 +1,9 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+dependencies {
+    implementation project(':common:core')
+    implementation project(':common:domain')
+    implementation project(':common:infrastructure')
+}

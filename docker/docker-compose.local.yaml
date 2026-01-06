@@ -1,0 +1,102 @@
+services:
+  # LGTM stack (Logs, Grafana, Traces, Metrics) with OpenTelemetry support
+  lgtm:
+    image: 'grafana/otel-lgtm:0.13.0'
+    container_name: base_lgtm
+    ports:
+      - '13000:3000'   # Grafana web UI
+      - '14317:4317'   # OTLP gRPC endpoint
+      - '14318:4318'   # OTLP HTTP endpoint
+    networks:
+      - base_net
+
+  # PostgreSQL database service
+  postgres:
+    image: postgres:18.0
+    container_name: base_postgres
+    environment:
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: secret
+    # Enable logical replication (useful for CDC tools like Debezium)
+    command: postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10
+    ports:
+      - "15432:5432"
+    networks:
+      - base_net
+
+  # Valkey (Redis-compatible in-memory data store)
+  valkey:
+    image: valkey/valkey:9.0.0
+    container_name: base_valkey
+    ports:
+      - "16379:6379"
+    networks:
+      - base_net
+
+  # Kafka & Kafka UI
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: base_kafka
+    ports:
+      - "19092:9092"
+      - "19093:9093"
+      - "19094:9094"
+      - "19095:9095"
+    environment:
+      KAFKA_NODE_ID: 0
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "0@kafka:9093"
+      KAFKA_LISTENERS: "BROKER://:9092,CONTROLLER://:9093,INTERNAL://:9094,EXTERNAL://:9095"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "BROKER:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "BROKER"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_ADVERTISED_LISTENERS: >
+        BROKER://kafka:9092,
+        INTERNAL://kafka:9094,
+        EXTERNAL://${KAFKA_EXTERNAL_HOST}:9095
+      KAFKA_CLIENT_LISTENER_NAME: "INTERNAL"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - base_net
+
+  kafka-ui:
+    image: kafbat/kafka-ui:f51df4c
+    container_name: base_kafka_ui
+    ports:
+      - "18080:8080"
+    environment:
+      DYNAMIC_CONFIG_ENABLED: "true"
+      KAFKA_CLUSTERS_0_NAME: "local"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:9094"
+    networks:
+      - base_net
+    depends_on: [ kafka ]
+
+  # Debezium
+  debezium:
+    image: debezium/connect:3.0.0.Final
+    container_name: base_debezium
+    ports:
+      - "18083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9094
+      GROUP_ID: "1"
+      CONFIG_STORAGE_TOPIC: "debezium__connect_configs"
+      OFFSET_STORAGE_TOPIC: "debezium__connect_offsets"
+      STATUS_STORAGE_TOPIC: "debezium__connect_statuses"
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      ENABLE_DEBEZIUM_SCRIPTING: "true"
+    networks:
+      - base_net
+    depends_on: [ kafka, postgres ]
+
+networks:
+  base_net:
+    driver: bridge

@@ -1,0 +1,8 @@
+rootProject.name = 'saas-base-social'
+
+include 'common:core'
+include 'common:infrastructure'
+include 'common:domain'
+
+include 'services:system-admin'
+include 'services:event-stream-gateway'
